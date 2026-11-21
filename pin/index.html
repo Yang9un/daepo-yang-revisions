@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>지금 자리 핀 찍기</title>
+<!-- 2026-11-21: 탐방 번호 카드의 QR 이 여는 페이지. 휴대폰 GPS 로 지금 자리를 잡아 구글 지도·카카오맵 핀으로 연다.
+     좌표는 서버로 보내지 않는다(이 페이지는 아무것도 저장하거나 보내지 않음, 휴대폰 안 기록만). 개인정보 없음. -->
+<style>
+:root{--bg:#fffdf8;--ink:#1d1a17;--soft:#6b5d52;--line:#d9c9b0;--band:#f4ead8;--ok:#2f7d3a;--warn:#a2492f}
+@media (prefers-color-scheme: dark){:root{--bg:#1d1a17;--ink:#f1ebe4;--soft:#cdbfb2;--line:#4f4338;--band:#2b2521;--ok:#7fd08a;--warn:#e8957b}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.5 "Apple SD Gothic Neo","Malgun Gothic",sans-serif;word-break:keep-all;overflow-wrap:break-word;padding:16px}
+h1{font-size:1.5rem;margin:0 0 4px}
+.sub{color:var(--soft);font-size:.9rem;margin:0 0 14px}
+.box{border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--band);margin:0 0 12px}
+.coord{font:700 1.25rem/1.3 Consolas,monospace}
+.acc{font-size:.95rem}
+.good{color:var(--ok)} .bad{color:var(--warn)}
+button,a.btn{display:block;width:100%;margin:8px 0;padding:14px;border-radius:12px;border:1px solid var(--line);background:#fff;color:#111;font-size:1.05rem;font-weight:700;text-align:center;text-decoration:none}
+a.btn.main{background:#1a73e8;color:#fff;border-color:#1a73e8}
+input{width:100%;padding:12px;font-size:1.05rem;border-radius:10px;border:1px solid var(--line)}
+ol{padding-left:1.2em;margin:6px 0} li{margin:3px 0}
+.log{font:13px/1.4 Consolas,monospace;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<h1 id="title">지금 자리 핀 찍기</h1>
+<p class="sub">번호 카드의 QR 로 열렸습니다. 휴대폰 위치(GPS)를 켜 두세요.</p>
+
+<div class="box">
+  <label for="name">핀 이름</label>
+  <input id="name" placeholder="예: 번호 16 · 새로 찾은 산소">
+</div>
+
+<div class="box" id="where">
+  <div>지금 자리</div>
+  <div class="coord" id="coord">위치를 잡는 중…</div>
+  <div class="acc" id="acc"></div>
+  <div class="sub" style="margin:6px 0 0">15초쯤 기다리면 더 정확해집니다. ±10m 안이면 좋습니다.</div>
+</div>
+
+<a class="btn main" id="gmap" href="#">구글 지도에 핀 열기</a>
+<div class="box">
+  <ol>
+    <li>구글 지도가 열리면 아래쪽 <b>저장</b>을 누릅니다.</li>
+    <li>목록 <b>'벌교 산소'</b>를 고릅니다(처음 한 번은 '새 목록'으로 만듦).</li>
+    <li>메모 칸에 핀 이름을 붙여 넣습니다(아래 '이름·좌표 복사').</li>
+  </ol>
+</div>
+<button id="copy">이름·좌표 복사</button>
+<a class="btn" id="kmap" href="#">카카오맵에 핀 열기</a>
+<a class="btn" id="sms" href="#">문자로 나에게 보내기(기록용)</a>
+<button id="again">위치 다시 잡기</button>
+
+<div class="box"><div>이 휴대폰에 남은 기록</div><div class="log" id="log"></div><button id="copyall">기록 모두 복사</button></div>
+
+<script>
+const q = new URLSearchParams(location.search);
+const n = q.get('n') || '', t = q.get('t') || '';
+const nameEl = document.getElementById('name');
+nameEl.value = n ? ('번호 ' + n + (t ? ' · ' + t : '')) : '';
+document.getElementById('title').textContent = n ? ('번호 ' + n + ' 핀 찍기') : '지금 자리 핀 찍기';
+let best = null, watch = null;
+function fmt(v){ return v.toFixed(6); }
+function store(){
+  if (!best) return;
+  try {
+    const k = 'pinlog', a = JSON.parse(localStorage.getItem(k) || '[]');
+    const row = { name: nameEl.value, lat: best.latitude, lng: best.longitude, acc: Math.round(best.accuracy), time: new Date().toISOString() };
+    const i = a.findIndex(r => r.name === row.name);
+    if (i >= 0) a[i] = row; else a.push(row);
+    localStorage.setItem(k, JSON.stringify(a));
+  } catch (e) {}
+  showlog();
+}
+function showlog(){
+  let a = [];
+  try { a = JSON.parse(localStorage.getItem('pinlog') || '[]'); } catch (e) {}
+  document.getElementById('log').textContent = a.length ? a.map(r => `${r.name}\t${fmt(r.lat)}, ${fmt(r.lng)}\t±${r.acc}m\t${r.time.slice(5,16).replace('T',' ')}`).join('\n') : '(아직 없음)';
+}
+function links(){
+  if (!best) return;
+  const lat = fmt(best.latitude), lng = fmt(best.longitude), nm = nameEl.value || '핀';
+  document.getElementById('gmap').href = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+  document.getElementById('kmap').href = `https://map.kakao.com/link/map/${encodeURIComponent(nm)},${lat},${lng}`;
+  const body = `${nm}\n${lat}, ${lng} (±${Math.round(best.accuracy)}m)\nhttps://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+  document.getElementById('sms').href = 'sms:?&body=' + encodeURIComponent(body);
+}
+function got(p){
+  const c = p.coords;
+  if (!best || c.accuracy < best.accuracy) best = c;
+  document.getElementById('coord').textContent = `${fmt(best.latitude)}, ${fmt(best.longitude)}`;
+  const acc = Math.round(best.accuracy);
+  const el = document.getElementById('acc');
+  el.textContent = `정확도 ±${acc}m`; el.className = 'acc ' + (acc <= 15 ? 'good' : 'bad');
+  links(); store();
+}
+function fail(e){ document.getElementById('coord').textContent = '위치를 못 잡았습니다: ' + e.message + ' (설정에서 위치 허용)'; }
+function start(){
+  best = null;
+  if (!navigator.geolocation) { fail({message:'이 브라우저는 위치를 지원하지 않음'}); return; }
+  if (watch !== null) navigator.geolocation.clearWatch(watch);
+  watch = navigator.geolocation.watchPosition(got, fail, { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 });
+  setTimeout(() => { if (watch !== null) { navigator.geolocation.clearWatch(watch); watch = null; } }, 30000);
+}
+document.getElementById('again').onclick = start;
+nameEl.oninput = () => { links(); };
+document.getElementById('copy').onclick = async () => {
+  if (!best) return;
+  const s = `${nameEl.value}  ${fmt(best.latitude)}, ${fmt(best.longitude)} (±${Math.round(best.accuracy)}m)`;
+  try { await navigator.clipboard.writeText(s); document.getElementById('copy').textContent = '복사했습니다'; } catch (e) { prompt('복사하세요', s); }
+  store();
+};
+document.getElementById('copyall').onclick = async () => {
+  const s = document.getElementById('log').textContent;
+  try { await navigator.clipboard.writeText(s); document.getElementById('copyall').textContent = '복사했습니다'; } catch (e) { prompt('복사하세요', s); }
+};
+showlog(); start();
+</script>
+</body>
+</html>
